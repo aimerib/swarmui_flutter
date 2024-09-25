@@ -47,7 +47,7 @@ class SwarmUIAPI extends ChangeNotifier {
   final Map<String, List<String>> _promptImages = {};
   final List<String> _revisionImages = [];
   List<Preset> currentPresets = [];
-  Map<String, dynamic> models = {};
+  Map<String, List<String>> models = {};
   Map<String, dynamic> wildcards = {};
   String? currentModel;
 
@@ -203,6 +203,9 @@ class SwarmUIAPI extends ChangeNotifier {
   /// Initialize parameters after acquiring session
   Future<void> _initializeParameters() async {
     try {
+      status = SwarmUIAPIStatus.loading;
+      notifyListeners();
+
       final response = await http.post(
         Uri.parse('$serverAddress/API/ListT2IParams'),
         headers: {'Content-Type': 'application/json'},
@@ -214,8 +217,33 @@ class SwarmUIAPI extends ChangeNotifier {
         genParamTypes = (data['list'] as List)
             .map((item) => GenParamType.fromJson(item))
             .toList();
-        models = data['models'];
-        wildcards = data['wildcards'];
+
+        // Reset models map
+        models = {};
+
+        if (data['models'] is List) {
+          for (var model in data['models']) {
+            if (model is Map<String, dynamic>) {
+              String subtype = model['subtype'] ?? 'default';
+              String name = model['name'];
+              if (!models.containsKey(subtype)) {
+                models[subtype] = [];
+              }
+              models[subtype]?.add(name);
+            }
+          }
+        } else if (data['models'] is Map<String, dynamic>) {
+          data['models'].forEach((key, value) {
+            if (value is List) {
+              models[key] = value.cast<String>();
+            }
+          });
+        } else {
+          debugPrint('Unexpected models structure: ${data['models'].runtimeType}');
+        }
+
+        wildcards = data['wildcards'] as Map<String, dynamic>? ?? {};
+        status = SwarmUIAPIStatus.idle;
         notifyListeners();
       } else {
         throw Exception('Failed to initialize parameters');

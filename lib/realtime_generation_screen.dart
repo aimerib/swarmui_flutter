@@ -1,5 +1,6 @@
-import 'dart:convert';
+// lib/realtime_generation_screen.dart
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +10,7 @@ import 'package:swarmui_flutter/models/gen_param_types.dart';
 import 'dart:async';
 
 import 'package:swarmui_flutter/settings_screen.dart';
+import 'package:dropdown_search/dropdown_search.dart';
 
 class RealtimeGenerationScreen extends StatefulWidget {
   const RealtimeGenerationScreen({super.key});
@@ -41,6 +43,9 @@ class RealtimeGenerationScreenState extends State<RealtimeGenerationScreen> {
       ValueNotifier({});
 
   bool _showAdvancedParams = false;
+
+  // Add a controller for the models dropdown
+  final TextEditingController _modelDropdownController = TextEditingController();
 
   @override
   void initState() {
@@ -131,6 +136,7 @@ class RealtimeGenerationScreenState extends State<RealtimeGenerationScreen> {
 
   @override
   void dispose() {
+    _modelDropdownController.dispose();
     _promptController.dispose();
     _imageSubscription.cancel();
     _errorSubscription.cancel();
@@ -397,54 +403,129 @@ class RealtimeGenerationScreenState extends State<RealtimeGenerationScreen> {
 
     List<String> modelOptions = [];
 
-    // Debug: Check the structure of swarmAPI.models
-    if (swarmAPI.models is Map<String, dynamic>) {
-      final subtypeData = swarmAPI.models[param.subtype];
-      if (subtypeData is List<dynamic>) {
-        modelOptions = subtypeData.cast<String>();
-      } else if (subtypeData is Map<String, dynamic>) {
-        modelOptions = subtypeData.keys.toList();
-      } else {
-        debugPrint(
-            'Unexpected subtypeData type: ${subtypeData.runtimeType}');
-      }
-    } else if (swarmAPI.models is List<dynamic>) {
-      // Handle the case where models is a list
-      modelOptions = (swarmAPI.models as List<dynamic>).cast<String>();
+    // Access models using subtype, defaulting to 'default'
+    final subtypeKey = param.subtype ?? '';
+    final subtypeData = swarmAPI.models[subtypeKey];
+    if (subtypeData is List<String>) {
+      modelOptions = subtypeData;
     } else {
-      debugPrint('Unexpected models type: ${swarmAPI.models.runtimeType}');
+      debugPrint('Unexpected subtypeData type: ${subtypeData.runtimeType}');
     }
 
-    // Ensure the current model is within the options
+    // Ensure there are model options available
+    if (modelOptions.isEmpty) {
+      debugPrint('No models available for subtype: $subtypeKey');
+      return const Text('No models available');
+    }
+
+    // Determine the currently selected model
     String? currentModel = swarmAPI.currentModel;
     if (!modelOptions.contains(currentModel)) {
       currentModel = modelOptions.isNotEmpty ? modelOptions.first : null;
       swarmAPI.setCurrentModel(currentModel);
     }
 
-    return DropdownButtonFormField<String>(
-      value: currentModel,
-      decoration: const InputDecoration(
-        hintText: 'Select Model',
-        isDense: true,
-        contentPadding:
-            EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        border: OutlineInputBorder(),
-      ),
-      items: modelOptions.map((String value) {
-        return DropdownMenuItem<String>(
-          value: value,
-          child: Text(value),
-        );
-      }).toList(),
+    return DropdownSearch<String>(
+      // mode: Mode.MENU,
+      items: modelOptions,
+      selectedItem: currentModel,
       onChanged: (String? newValue) {
-        setState(() {
-          param.defaultValue = newValue;
-          swarmAPI.setCurrentModel(newValue);
-        });
-        debugPrint('Selected model changed to: $newValue');
+        if (newValue != null) {
+          setState(() {
+            param.defaultValue = newValue;
+            swarmAPI.setCurrentModel(newValue);
+            currentModel = newValue;
+          });
+          debugPrint('Selected model changed to: $newValue');
+          debugPrint('Current model: $currentModel');
+        } else {
+          debugPrint('Selected model is null');
+        }
       },
-      isExpanded: true,
+      dropdownDecoratorProps: const DropDownDecoratorProps(
+        dropdownSearchDecoration: InputDecoration(
+          labelText: "Select Model",
+          border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.fromLTRB(12, 12, 8, 0),
+        ),
+      ),
+      popupProps: PopupProps.menu(
+        showSearchBox: true,
+        searchFieldProps: const TextFieldProps(
+          decoration: InputDecoration(
+            border: OutlineInputBorder(),
+            contentPadding: EdgeInsets.fromLTRB(12, 12, 8, 0),
+            labelText: "Search Model",
+          ),
+        ),
+        // Styling the list items
+        itemBuilder: (context, item, isSelected) {
+          return Container(
+            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: isSelected ? Colors.blueAccent.withOpacity(0.2) : Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isSelected ? Colors.blueAccent : Colors.grey.shade300,
+              ),
+            ),
+
+            child: ListTile(
+              title: Text(
+                item,
+                style: TextStyle(
+                  color: isSelected ? Colors.blueAccent : Colors.black,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ),
+          );
+        },
+        // Styling the selected item displayed in the dropdown
+        // selectedItemBuilder: (context, selectedItem) {
+        //   return modelOptions.map((item) {
+        //     bool isSelected = item == selectedItem;
+        //     return Container(
+        //       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        //       decoration: BoxDecoration(
+        //         color: isSelected ? Colors.blueAccent.withOpacity(0.1) : Colors.white,
+        //         borderRadius: BorderRadius.circular(8),
+        //       ),
+        //       child: Text(
+        //         item,
+        //         style: TextStyle(
+        //           color: isSelected ? Colors.blueAccent : Colors.black,
+        //           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        //         ),
+        //       ),
+        //     );
+        //   }).toList();
+        // },
+        // Handling empty states
+        emptyBuilder: (context, searchEntry) {
+          return const Center(
+            child: Text("No models found."),
+          );
+        },
+        // Optional: Customize other builders as needed
+        errorBuilder: (context, error, stackTrace) {
+          return const Center(
+            child: Text("An error occurred."),
+          );
+        },
+        loadingBuilder: (context, event) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        },
+      ),
+      // Validator remains unchanged
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return "Model cannot be empty";
+        }
+        return null;
+      },
     );
   }
 
@@ -572,8 +653,6 @@ class RealtimeGenerationScreenState extends State<RealtimeGenerationScreen> {
       (index) {
         final String value = values[index];
         final bool isSelected = value == selectedValue;
-        AppLogger.logger.d('value: $value, selectedValue: $selectedValue');
-        AppLogger.logger.d('isSelected: $isSelected');
 
         return DropdownMenuEntry<String>(
           value: value,
@@ -581,8 +660,9 @@ class RealtimeGenerationScreenState extends State<RealtimeGenerationScreen> {
           // Customize the entry to highlight if it's selected
           style: isSelected
               ? MenuItemButton.styleFrom(
-                            foregroundColor: Colors.blueAccent,
-                          )
+                          foregroundColor: Colors.white,
+                          backgroundColor: Colors.blueAccent,
+                        )
               : null,
         );
       },
@@ -740,7 +820,8 @@ class RealtimeGenerationScreenState extends State<RealtimeGenerationScreen> {
                               'Loading Models: ${_currentStatus!.loadingModels}'),
                           Text(
                               'Waiting Backends: ${_currentStatus!.waitingBackends}'),
-                          Text('Live Generations: ${_currentStatus!.liveGens}'),
+                          Text(
+                              'Live Generations: ${_currentStatus!.liveGens}'),
                         ],
                       ),
                     ),
